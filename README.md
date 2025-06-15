@@ -105,10 +105,10 @@ Schema of the process:
                                     │     launch_workers     │
                                     │ (orchestrator & guard) │
                                     └────────────────────────┘
-                                            │
+                                               │
                         ┌──────────────────────┼──────────────────────┐
                         │                      │                      │
-                Spawn N │                 Spawn ppo_learner          │
+                Spawn N │                 Spawn ppo_learner           │
                 workers │                      │                      │
                         ▼                      ▼                      ▼
 
@@ -121,27 +121,27 @@ Schema of the process:
                         │ from checkpoints/    │ from checkpoints/    │ from checkpoints/
                         ▼                      ▼                      ▼
 
-                ┌─────────┐              ┌─────────┐            ┌─────────┐
-                │   Vei   │              │   Vei   │            │   Vei   │
-                │  Agent  │              │  Agent  │            │  Agent  │
-                └─────────┘              └─────────┘            └─────────┘
-                        │                      │                      │
-                        │ interacts via        │ interacts via        │ interacts via
-                        │ scripts-of-tribute   │ scripts-of-tribute   │ scripts-of-tribute
-                        ▼                      ▼                      ▼
+                ┌─────────┐              ┌─────────┐                ┌─────────┐
+                │   Vei   │              │   Vei   │                │   Vei   │
+                │  Agent  │              │  Agent  │                │  Agent  │
+                └─────────┘              └─────────┘                └─────────┘
+                        │                      │                         │
+                        │ interacts via        │ interacts via           │ interacts via
+                        │ scripts-of-tribute   │ scripts-of-tribute      │ scripts-of-tribute
+                        ▼                      ▼                         ▼
 
-                ┌────────────────────────────────────────────────────┐
-                │                 Game Runner / Engine              │
-                └────────────────────────────────────────────────────┘
-                        │ ←──── game state & legal moves ────┐
-                        │                                    │
-                        └─ play() returns action decisions ─┘
-                        │                                   
-                        ▼                                   
-                ┌──────────────────┐                       
-                │  game_end()      │                       
-                │ (compute reward) │                       
-                └──────────────────┘                       
+                ┌──────────────────────────────────────────────────────────┐
+                │                 Game Runner / Engine                     │
+                └──────────────────────────────────────────────────────────┘
+                                │ ←──── game state & legal moves ────┐
+                                │                                    │
+                                └─ play() returns action decisions ─┘
+                                │                                   
+                                ▼                                   
+                        ┌──────────────────┐                       
+                        │  game_end()      │                       
+                        │ (compute reward) │                       
+                        └──────────────────┘                       
                                 │                                   
                                 │ append step JSON to `replay/`     
                                 ▼                                   
@@ -158,21 +158,21 @@ Schema of the process:
                         │     ppo_learner        │
                         │  (loop)                │
                         └────────────────────────┘
-                                │
-                consume JSONL   │
-                compute losses  │
-                update VeiNet   │
-                                ▼
+                                    │
+                    consume JSONL   │
+                    compute losses  │
+                    update VeiNet   │
+                                    ▼
                         ┌────────────────────────┐
                         │   checkpoints/         │
                         │ weights_*.pt           │
                         └────────────────────────┘
-                                │
-                    new checkpoint detected
-                    by launch_workers
-                                │
-                                └───┐
-                                    ▼
+                                        │
+                            new checkpoint detected
+                            by launch_workers
+                                        │
+                                        │
+                                        ▼
                                 ┌───────────────────┐
                                 │ launch_workers    │
                                 │ (distribute       │
