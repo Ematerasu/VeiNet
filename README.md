@@ -108,7 +108,7 @@ Schema of the process:
                                                │
                         ┌──────────────────────┼──────────────────────┐
                         │                      │                      │
-                Spawn N │                 Spawn ppo_learner           │
+                Spawn N │                      │                      │
                 workers │                      │                      │
                         ▼                      ▼                      ▼
 
@@ -150,12 +150,12 @@ Schema of the process:
                         │     replay/      │
                         │  *.jsonl logs    │
                         └──────────────────┘
-                                │
+                                ↑
                                 │ batched read
-                                ▼
-
+                                │
+                                │
                         ┌────────────────────────┐
-                        │     ppo_learner        │
+                        │     ppo_learner        │ <-- spawn this process in separate terminal
                         │  (loop)                │
                         └────────────────────────┘
                                     │
