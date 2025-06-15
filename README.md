@@ -99,6 +99,92 @@ python -m vei_train.vei_eval \
   --games 100
 ```
 
+Schema of the process:
+```
+                                    ┌────────────────────────┐
+                                    │     launch_workers     │
+                                    │ (orchestrator & guard) │
+                                    └────────────────────────┘
+                                            │
+                        ┌──────────────────────┼──────────────────────┐
+                        │                      │                      │
+                Spawn N │                 Spawn ppo_learner          │
+                workers │                      │                      │
+                        ▼                      ▼                      ▼
+
+                ┌──────────────────┐     ┌──────────────────┐     ┌──────────────────┐
+                │ selfplay_worker1 │     │ selfplay_worker2 │ …   │ selfplay_workerN │
+                │ (loop)           │     │ (loop)           │     │ (loop)           │
+                └──────────────────┘     └──────────────────┘     └──────────────────┘
+                        │                      │                      │
+                        │ load weights         │ load weights         │ load weights
+                        │ from checkpoints/    │ from checkpoints/    │ from checkpoints/
+                        ▼                      ▼                      ▼
+
+                ┌─────────┐              ┌─────────┐            ┌─────────┐
+                │   Vei   │              │   Vei   │            │   Vei   │
+                │  Agent  │              │  Agent  │            │  Agent  │
+                └─────────┘              └─────────┘            └─────────┘
+                        │                      │                      │
+                        │ interacts via        │ interacts via        │ interacts via
+                        │ scripts-of-tribute   │ scripts-of-tribute   │ scripts-of-tribute
+                        ▼                      ▼                      ▼
+
+                ┌────────────────────────────────────────────────────┐
+                │                 Game Runner / Engine              │
+                └────────────────────────────────────────────────────┘
+                        │ ←──── game state & legal moves ────┐
+                        │                                    │
+                        └─ play() returns action decisions ─┘
+                        │                                   
+                        ▼                                   
+                ┌──────────────────┐                       
+                │  game_end()      │                       
+                │ (compute reward) │                       
+                └──────────────────┘                       
+                                │                                   
+                                │ append step JSON to `replay/`     
+                                ▼                                   
+
+                        ┌──────────────────┐
+                        │     replay/      │
+                        │  *.jsonl logs    │
+                        └──────────────────┘
+                                │
+                                │ batched read
+                                ▼
+
+                        ┌────────────────────────┐
+                        │     ppo_learner        │
+                        │  (loop)                │
+                        └────────────────────────┘
+                                │
+                consume JSONL   │
+                compute losses  │
+                update VeiNet   │
+                                ▼
+                        ┌────────────────────────┐
+                        │   checkpoints/         │
+                        │ weights_*.pt           │
+                        └────────────────────────┘
+                                │
+                    new checkpoint detected
+                    by launch_workers
+                                │
+                                └───┐
+                                    ▼
+                                ┌───────────────────┐
+                                │ launch_workers    │
+                                │ (distribute       │
+                                │  updated weights) │
+                                └───────────────────┘
+```
+And the loops continue:
+- **selfplay_worker**: load weights → play games → log → repeat  
+- **ppo_learner**: read logs → train → save weights → repeat  
+- **launch_workers**: spawn/manage workers, watch checkpoints, re-deploy weights  
+
+
 ---
 
 ## Vei Bot Architecture
@@ -149,10 +235,10 @@ VeiNet is a Transformer-based policy/value network that aggregates sets of card 
   - `phase_emb`: learnable embedding for four game phases.
 
 - **Transformer Trunk**  
-  1. **Interfer** all pooled outputs → 10 × 256 dims.  
-  2. `pre_trunk`: linear + ReLU → 256 dims.  
-  3. `trans_enc`: two layers of `TransformerEncoder` (8 heads, GELU, feedforward 1024).  
-  4. `post_proj`: linear + ReLU → 256 dims.  
+    - **Interfer** all pooled outputs → 10 × 256 dims.  
+    - `pre_trunk`: linear + ReLU → 256 dims.  
+    - `trans_enc`: two layers of `TransformerEncoder` (8 heads, GELU, feedforward 1024).  
+    - `post_proj`: linear + ReLU → 256 dims.  
 
 - **Value Head**  
   - Single linear layer maps 256-dim trunk output → scalar V(s).
