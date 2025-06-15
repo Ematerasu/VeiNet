@@ -110,18 +110,21 @@ class Vei(BaseAI):
                 state_vec, _ = self.net.forward_state(feats)         # (256,)
                 move_vecs = self.move_encoder(possible_moves)        # (K,256)
                 logits = (state_vec.unsqueeze(0) * move_vecs).sum(-1) # dot
+            good_moves = sum(1 for m in possible_moves 
+                                    if m.command in (MoveEnum.PLAY_CARD,
+                                                    MoveEnum.ACTIVATE_AGENT,
+                                                    MoveEnum.BUY_CARD,
+                                                    MoveEnum.CALL_PATRON))
             try:
                 end_idx = next(i for i, m in enumerate(possible_moves) if m.command == MoveEnum.END_TURN)
-                if end_idx < logits.size(0):
-                    logits[end_idx] -= 1.0
+                if end_idx < logits.size(0) and good_moves > 0:
+                    logits[end_idx] -= 0.1 * good_moves
             except (StopIteration, IndexError):
                 pass
             probs = logits.softmax(0).cpu().numpy()
             idx   = np.random.choice(len(possible_moves), p=probs)
             mv    = possible_moves[idx]
-            ended_early   = (mv.command == MoveEnum.END_TURN
-                                and any(m.command != MoveEnum.END_TURN
-                                        for m in possible_moves))
+            ended_early   = (mv.command == MoveEnum.END_TURN and any(m.command in [MoveEnum.PLAY_CARD, MoveEnum.ACTIVATE_AGENT] for m in possible_moves))
             proactive_move   = mv.command in (MoveEnum.PLAY_CARD,
                                             MoveEnum.ACTIVATE_AGENT,
                                             MoveEnum.BUY_CARD,
@@ -132,7 +135,7 @@ class Vei(BaseAI):
                 "moves": [self.serialize_move(m) for m in possible_moves],
                 "old_logp": logits.log_softmax(0)[idx].item(),
                 "action_idx": idx,
-                "stats": {"ended_early": ended_early, "proactive_move":  proactive_move},
+                "stats": {"ended_early": ended_early, "proactive_move":  proactive_move, "good_moves": good_moves},
                 "tag": self._tag,
             })
             return mv
@@ -157,7 +160,7 @@ class Vei(BaseAI):
 
         R_terminal = 1 if end_game_state.winner == player_name else -1
         R_terminal += Δprest + patron_bonus
-        TURN_PEN   = -0.02
+        TURN_PEN   = -0.01
         ACTIVITY_BONUS = +0.002
         ALIVE_BONUS = +0.005
 
@@ -165,7 +168,8 @@ class Vei(BaseAI):
         for step in reversed(self._steps):
             st = step["stats"]
             extra = ALIVE_BONUS
-            if st["ended_early"]: extra += TURN_PEN
+            good_moves_t = st["good_moves"]
+            if st["ended_early"]: extra += (TURN_PEN * good_moves_t)
             if st["proactive_move"]: extra += ACTIVITY_BONUS
             G = G * gamma + extra
 
