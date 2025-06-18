@@ -12,6 +12,8 @@ EVAL_BOTS = [
     "RandomWithoutEndTurnBot",
     "MaxPrestigeBot",
     "DecisionTreeBot",
+    "BeamSearchBot",
+    "MCTSBot",
     "SOISMCTS"
 ]
 
@@ -83,8 +85,8 @@ def main():
     ap.add_argument("--num-workers", type=int, default=4)
     ap.add_argument("--weights", default=str(ROOT / "weights.pt"))
     ap.add_argument("--replay-dir", default=str(ROOT / "replay"))
-    ap.add_argument("--eval-every",  type=int, default=50)
-    ap.add_argument("--games", type=int, default=100)
+    ap.add_argument("--eval-every",  type=int, default=10)
+    ap.add_argument("--games", type=int, default=50)
     args = ap.parse_args()
 
     os.makedirs(args.replay_dir, exist_ok=True)
@@ -118,7 +120,7 @@ def main():
 
                     ckpt_path = copy_weights(args.weights, ckpt_dir, checkpoint_idx, keep_last=10)
 
-                    if checkpoint_idx % args.eval_every == 0 and checkpoint_idx:
+                    if checkpoint_idx % args.eval_every == 0:
                         print(f"[EVAL] running suite for ckpt {checkpoint_idx}")
                         wrs = []
                         for bot in EVAL_BOTS:

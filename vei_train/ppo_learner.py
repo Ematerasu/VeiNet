@@ -4,6 +4,7 @@ from torch import nn
 import numpy as np
 import gc
 import itertools
+from tqdm import tqdm
 
 from models.VeiNet import VeiNet
 from models.move_encoder import MoveEncoder 
@@ -25,24 +26,19 @@ All params to tweak things are here at the top, simply run this file and adjust 
 
 
 # ──────────────────────  hyperparam  ───────────────────── #
-BATCH        = 256
-EPOCHS       = 5
-CLIP_EPS     = 0.1
-LR           = 1e-6
-UPDATE_EVERY = 100
-KL_BETA = 0.5
+BATCH       = 1024
+MINI        = 128
+EPOCHS      = 4
+LR          = 5e-5
+CLIP_EPS    = 0.2
+CLIP_VF     = 0.2
+TEMPERATURE = 1.0
 
-FREEZE_K = 1000
-RESYNC_K = 500
-ME_LR_RESYNC = 5e-7
-
-KL_TARGET   = 0.03
-LR_MIN      = 5e-7
-LR_MAX      = 2e-4
-LR_GAIN_UP  = 1.15
-LR_GAIN_DOWN= 0.7
+BETA_LOW    = 0.1
+BETA_HIGH   = 0.3
+KL_TARGET   = 0.01
 # ────────────────────────────────────────────────────────── #
-
+UPDATE_EVERY = 10
 CURRENT_TAG = 0.0
 
 def feats_to_torch(feats_json: dict, device: torch.device):
@@ -120,12 +116,13 @@ def load_batch(replay_dir: str, want: int = BATCH):
 
 def collate(steps):
     feat_jsons = [s["feats"] for s in steps]
-    a_idx    = torch.tensor([s["action_idx"] for s in steps], dtype=torch.int64)
+    move_lists = [s["moves"] for s in steps]
     old_lp   = torch.tensor([s["old_logp"] for s in steps], dtype=torch.float32)
+    old_val    = torch.tensor([s.get("old_value", 0.0) for s in steps], dtype=torch.float32)
+    a_idx    = torch.tensor([s["action_idx"] for s in steps], dtype=torch.int64)
     R        = torch.tensor([s["reward"]   for s in steps], dtype=torch.float32)
 
-    move_lists = [s["moves"] for s in steps]
-    return feat_jsons, move_lists, old_lp, a_idx, R
+    return feat_jsons, move_lists, old_lp, old_val, a_idx, R
 
 def main():
     global CURRENT_TAG
@@ -133,8 +130,8 @@ def main():
     ap.add_argument("--weights",    default="weights.pt")
     ap.add_argument("--replay-dir", default="replay")
     args = ap.parse_args()
-
-    CURRENT_TAG = os.path.getmtime(args.weights)
+    if os.path.isfile(args.weights):
+        CURRENT_TAG = os.path.getmtime(args.weights)
 
     os.makedirs(args.replay_dir, exist_ok=True)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -152,33 +149,19 @@ def main():
                 values.append(v)
             H = torch.stack(trunk_vecs)           # (B,256)
             V = torch.stack(values).squeeze(-1)   # (B,)
-            logits = (H.unsqueeze(1) * move_vecs).sum(-1)
+            H = F.normalize(H, dim=-1)
+            M = F.normalize(move_vecs, dim=-1)
+            logits = (H.unsqueeze(1) * M).sum(-1)
             return logits, V
 
     net = LearnerNet().to(device)
-    for p in net.move_encoder.parameters():
-        p.requires_grad = False
-    
-    phase_end = FREEZE_K
-    mlp_params   = net.backbone.pre_trunk.parameters()
-    head_params = itertools.chain(
-        net.backbone.value_head.parameters()
-    )
-    me_params = net.move_encoder.parameters()
-    for p in net.move_encoder.parameters():
-        p.requires_grad = False
-    for p in net.backbone.trans_enc.parameters():
-        p.requires_grad = False
-    for p in net.backbone.post_proj.parameters():
-        p.requires_grad = False
 
     opt = torch.optim.Adam(
         [
-            {"params": mlp_params,  "lr": LR},
-            {"params": head_params, "lr": LR},
-            {"params": me_params,   "lr": LR * 0.1},
-            {"params": net.backbone.trans_enc.parameters(),  "lr": 0.0, "initial_lr": 5e-6},
-            {"params": net.backbone.post_proj.parameters(),  "lr": 0.0, "initial_lr": 5e-6},
+            {"params": net.backbone.trans_enc.parameters(), "lr": LR},
+            {"params": net.backbone.post_proj.parameters(), "lr": LR},
+            {"params": net.backbone.value_head.parameters(), "lr": LR},
+            {"params": net.move_encoder.parameters(),         "lr": LR * 5},
         ],
         betas=(0.9, 0.999), eps=1e-8
     )
@@ -200,46 +183,24 @@ def main():
         print("[Learner] loaded existing weights")
 
     step_cnt = 0
+    pbar = tqdm(desc="Training steps", unit="step")
     buffer = []
-    BETA_LOW  = 0.1
-    BETA_HIGH = 0.3
-    kl_beta = BETA_LOW
+    kl_beta  = BETA_LOW
     while True:
-        if step_cnt == 0:
-            for p in net.backbone.trans_enc.parameters():
-                p.requires_grad = False
-            for p in net.backbone.post_proj.parameters():
-                p.requires_grad = False
-
-        if step_cnt == 500:
-            for p in net.backbone.trans_enc.parameters():
-                p.requires_grad = True
-            for p in net.backbone.post_proj.parameters():
-                p.requires_grad = True
-
-            for g in opt.param_groups:
-                if g.get("initial_lr") is not None:
-                    g["lr"] = g["initial_lr"]
-
-            print(f"[Scheduler] Transformer unfreezed @ step {step_cnt} (lr=5e-6)")
-
         buffer.extend(load_batch(args.replay_dir, want=BATCH))
         if len(buffer) < BATCH:
-            print(f'Not enough for learn {len(buffer)}/{BATCH}', end='\r')
+            #print(f'Not enough for learn {len(buffer)}/{BATCH}', end='\r')
             time.sleep(1)
             continue
         steps   = buffer[:BATCH]
         buffer  = buffer[BATCH:]
-        feat_jsons, move_lists, old_lp, a_idx, R = collate(steps)
+        feat_jsons, move_lists, old_lp, old_val, a_idx, R = collate(steps)
         feats_batch = [feats_to_torch(f, device) for f in feat_jsons]
-        old_lp, a_idx, R = [t.to(device) for t in (old_lp, a_idx, R)]
+        old_lp, old_val, a_idx, R = [t.to(device) for t in (old_lp, old_val, a_idx, R)]
 
-        kl_sum   = 0.0
-        kl_count = 0
-        ent_sum   = 0.0
-        ent_count = 0
-        MINI = 64
-        GRAD_ACC = BATCH // MINI
+        kl_sum, kl_count = 0.0, 0
+        ent_sum, ent_count = 0.0, 0
+
         for _ in range(EPOCHS):
             perm = torch.randperm(BATCH)
             opt.zero_grad()
@@ -247,78 +208,66 @@ def main():
                 idx = perm[i:i+MINI]
 
                 feats_mb = [feats_batch[j] for j in idx.tolist()]
-                lp_old    = old_lp[idx]
-                ret       = R[idx]
+                old_lp_mb, old_val_mb = old_lp[idx], old_val[idx]
+                ret_mb       = R[idx]
                 act       = a_idx[idx]
                 act = act.view(-1, 1).long()
 
-                mv_s, mask_s = net.move_encoder.encode_stub_batch([move_lists[j] for j in idx.tolist()])
-
+                mv_s, mask_s = net.move_encoder.forward_batch([move_lists[j] for j in idx.tolist()])
                 mv_s, mask_s = mv_s.to(device), mask_s.to(device)
+
                 logits, V = net(feats_mb, mv_s)
-                lp_new    = logits.log_softmax(-1).gather(1, act).squeeze(1)
+                logits = logits / TEMPERATURE
+                logits = torch.clamp(logits, -20.0, 20.0)
 
-                adv   = ret - V.detach()
+                log_probs = F.log_softmax(logits.masked_fill(~mask_s, -1e9), dim=-1)
+                probs     = log_probs.exp()
+                lp_new = log_probs.gather(1, act).squeeze(1)
+
+                adv   = ret_mb - V.detach()
                 adv = (adv - adv.mean()) / (adv.std() + 1e-8)
-                #with torch.no_grad():
-                    #print("adv mean:", adv.abs().mean().item())
-                ratio = (lp_new - lp_old).exp()
-                loss_pi = -(torch.min(ratio*adv, torch.clamp(ratio,1-CLIP_EPS,1+CLIP_EPS)*adv)).mean()
-                loss_v  = 0.5*F.mse_loss(V, ret)
-                ent     = -(logits.softmax(-1)*logits.log_softmax(-1)).masked_select(mask_s).mean()
-                approx_kl = (lp_old - lp_new).mean().detach()
+                
+                ratio = (lp_new - old_lp_mb).exp()
+                clipped = torch.clamp(ratio, 1-CLIP_EPS, 1+CLIP_EPS) * adv
+                loss_pi = -(torch.min(ratio * adv, clipped)).mean()
 
-                loss    = 1.1*loss_pi + 0.3*loss_v - 0.005*ent + kl_beta * approx_kl
+                V_clip    = old_val_mb + torch.clamp(V - old_val_mb, -CLIP_VF, CLIP_VF)
+                loss_v1   = (V - ret_mb).pow(2)
+                loss_v2   = (V_clip - ret_mb).pow(2)
+                loss_v    = 0.5 * torch.max(loss_v1, loss_v2).mean()
 
-                ent_sum   += ent.item() * len(idx)
-                ent_count += len(idx)
+                entropy   = -(probs * log_probs).masked_select(mask_s).sum() / mask_s.sum()
 
-                kl_sum   += approx_kl.item() * len(idx)
-                kl_count += len(idx)
+                approx_kl = (old_lp_mb - lp_new).mean().detach()
+
+                loss    = 1.0*loss_pi + 1.0*loss_v - 0.02*entropy + kl_beta*approx_kl
                 loss.backward()
-                if (i // MINI + 1) % GRAD_ACC == 0:
-                    nn.utils.clip_grad_norm_(mlp_params, 10.)
-                    nn.utils.clip_grad_norm_(net.backbone.trans_enc.parameters(), 2.)
-                    nn.utils.clip_grad_norm_(net.backbone.value_head.parameters(), 1.)
-                    nn.utils.clip_grad_norm_(net.backbone.post_proj.parameters(), 2.)
+
+                ent_sum   += entropy.item()   * idx.size(0)
+                ent_count += idx.size(0)
+                kl_sum    += approx_kl.item() * idx.size(0)
+                kl_count  += idx.size(0)
+                
+                if ((i // MINI) + 1) * MINI >= BATCH:
+                    nn.utils.clip_grad_norm_(net.parameters(), 1.0)
                     opt.step()
                     opt.zero_grad()
 
-        avg_kl = kl_sum / kl_count
+        avg_kl  = kl_sum  / kl_count
         avg_ent = ent_sum / ent_count
+        kl_beta = float(min(BETA_HIGH, max(BETA_LOW, avg_kl / KL_TARGET)))
 
-        trunk_group = opt.param_groups[0]
-        trunk_lr    = trunk_group["lr"]
-        if avg_kl < 0.5 * KL_TARGET:
-            trunk_lr = min(trunk_lr * LR_GAIN_UP, LR_MAX)
-        elif avg_kl > 2.0 * KL_TARGET:
-            trunk_lr = max(trunk_lr * LR_GAIN_DOWN, LR_MIN)
-        trunk_group["lr"] = trunk_lr
-        #print(trunk_group["lr"], loss.item())
-        kl_beta = BETA_LOW if avg_kl < 0.01 else BETA_HIGH
         step_cnt += 1
+        pbar.update(1)
+        pbar.set_postfix({"step": step_cnt})
+
         if step_cnt % UPDATE_EVERY == 0:
             torch.save(net.state_dict(), args.weights)
-            print(f"[Learner] step {step_cnt} | R̄={R.float().mean():+.3f} | val head: {V.float().mean():.3f} | V.std={V.std():.3f} | KL≈{avg_kl:.4f} | H={avg_ent:.4f} | Loss={loss.item():.4f}| saved.")
+            print(
+                f"[Learner] step {step_cnt} | R̄={R.float().mean():+.3f} | val head: {V.float().mean():.3f} | V.std={V.std():.3f} | "
+                f"KL≈{avg_kl:.4f} | H={avg_ent:.4f} | Loss={loss.item():.4f}| saved."
+            )
             CURRENT_TAG = os.path.getmtime(args.weights)
-
-        if step_cnt == phase_end:
-            if any(p.requires_grad for p in net.move_encoder.parameters()):
-                for p in net.move_encoder.parameters():
-                    p.requires_grad = False
-                phase_end += FREEZE_K
-                print(f"[Scheduler] freeze ME @ {step_cnt}")
-            else:
-                for p in net.move_encoder.parameters():
-                    p.requires_grad = True
-                for g in opt.param_groups:
-                    if set(g['params']) & set(me_params):
-                        g['lr'] = ME_LR_RESYNC
-                phase_end += RESYNC_K
-                print(f"[Scheduler] resync ME @ {step_cnt}")
-        del feats_batch, old_lp, a_idx, R
-        torch.cuda.empty_cache()
-        gc.collect()
 
 if __name__ == "__main__":
     main()

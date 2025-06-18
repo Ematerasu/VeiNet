@@ -5,7 +5,7 @@ from typing import Dict, List, TypedDict
 import numpy as np
 import torch
 from models.card_registry import CardRegistry
-from scripts_of_tribute.board import GameState, UniqueCard
+from scripts_of_tribute.board import GameState, UniqueCard, CurrentPlayer
 from scripts_of_tribute.enums import PlayerEnum, PatronId
 
 class StateTensors(TypedDict):
@@ -19,6 +19,7 @@ class StateTensors(TypedDict):
     scalars: torch.Tensor         # (4,)
     patrons: torch.Tensor         # (NUM_PATRONS,)
     phase:   torch.Tensor         # (1,)
+    deck_pct: torch.Tensor
 
 
 class StateEncoder:
@@ -33,20 +34,25 @@ class StateEncoder:
 
 
     def __call__(self, gs: GameState) -> StateTensors:
-        return {
+        feats = {
             "hand":     self._cards_tensor(gs.current_player.hand),
             "played":   self._cards_tensor(gs.current_player.played),
             "cooldown": self._cards_tensor(gs.current_player.cooldown_pile),
             "draw":     self._cards_tensor(gs.current_player.draw_pile),
             "tavern":   self._cards_tensor(gs.tavern_available_cards),
-
             "agents_self":  self._agents_tensor(gs.current_player.agents),
             "agents_enemy": self._agents_tensor(gs.enemy_player.agents),
-
             "scalars": self._scalar_tensor(gs.current_player, gs.enemy_player),
-            "patrons": self._patron_tensor(gs.patron_states, gs.current_player.player_id, gs.enemy_player.player_id),
-            "phase":   torch.tensor([gs.board_state.value], dtype=torch.long, device=self.device),
+            "patrons": self._patron_tensor(gs.patron_states,
+                                            gs.current_player.player_id,
+                                            gs.enemy_player.player_id),
+            "phase":   torch.tensor([gs.board_state.value],
+                                    dtype=torch.long, device=self.device),
         }
+
+        feats["deck_pct"] = self._deck_distribution(gs.current_player)
+
+        return feats
 
     def _cards_tensor(self, card_list: List[UniqueCard]) -> torch.Tensor:
         if not card_list:
@@ -103,3 +109,26 @@ class StateEncoder:
             elif owner == opp_player_id:
                 vals[pid.value] = -1.0
         return vals
+
+    def _deck_distribution(self, player: CurrentPlayer) -> torch.Tensor:
+        groups = [
+            *player.hand,
+            *player.played,
+            *player.cooldown_pile,
+            *player.draw_pile,
+            *[agent.representing_card for agent in player.agents]
+        ]
+
+        counts = {pid: 0 for pid in PatronId}
+        total = 0
+
+        for card in groups:
+            counts[card.deck] += 1
+            total += 1
+
+        if total > 0:
+            pct = [counts[pid] / total for pid in PatronId]
+        else:
+            pct = [0.0 for _ in PatronId]
+
+        return torch.tensor(pct, dtype=torch.float32, device=self.device)

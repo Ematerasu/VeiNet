@@ -136,7 +136,7 @@ class MoveEncoder(nn.Module):
     
     def _encode_stub(self, d: dict) -> torch.Tensor:
         t_idx    = d["type"]
-        vec_type = self.type_emb.weight[t_idx]
+        vec_type = self.type_emb(torch.tensor(t_idx, device=self.type_emb.weight.device))
         dev      = vec_type.device
 
         vec_card  = torch.zeros(65, device=dev)
@@ -153,12 +153,12 @@ class MoveEncoder(nn.Module):
             flag_att[0] = 1.0
 
         if t_idx == 4 and "patron" in d:
-            vec_pat = self.patron_emb.weight[d["patron"]]
+            vec_pat = self.patron_emb.weight[d["patron"]].to(dev)
 
         if t_idx == 5 and "cids" in d:
-            emb = torch.as_tensor(self.reg.embedding[d["cids"]],
-                                device=dev)
-            vec_card = emb.mean(0)
+            if d["cids"]:
+                emb = torch.as_tensor(self.reg.embedding[d["cids"]], device=dev)
+                vec_card = emb.mean(0)
 
         if t_idx == 5 and "eff" in d:
             eff_vecs = []
@@ -192,31 +192,54 @@ class MoveEncoder(nn.Module):
 
         for d in flat_moves:
             t_idx = d["type"]
-            vec_type = self.type_emb.weight[t_idx].to(self.device)
-            vec_card = torch.zeros(65, device=self.device)
-            vec_pat = torch.zeros(10, device=self.device)
-            vec_choice = torch.zeros(self.d_model, device=self.device)
-            flag_att = torch.zeros(1, device=self.device)
 
-            if t_idx in (0, 1, 3) and "cid" in d:
-                vec_card = torch.as_tensor(self.reg.embedding[d["cid"]], device=self.device)
-            elif t_idx == 2 and "cid" in d:
-                vec_card = torch.as_tensor(self.reg.embedding[d["cid"]], device=self.device)
+            # --- 1. TYPE embedding ---
+            try:
+                vec_type = self.type_emb(torch.tensor(t_idx, device=self.device))
+            except IndexError:
+                vec_type = torch.zeros_like(self.type_emb.weight[0]).to(self.device)
+
+            # --- 2. CARD embedding ---
+            vec_card = torch.zeros(65, device=self.device)
+            if t_idx in (0, 1, 2, 3) and "cid" in d:
+                try:
+                    vec_card = torch.as_tensor(self.reg.embedding[d["cid"]], device=self.device)
+                except Exception:
+                    pass  # default to zeros
+            elif t_idx == 5 and "cids" in d:
+                if d["cids"]:
+                    try:
+                        card_embs = torch.as_tensor(self.reg.embedding[d["cids"]], device=self.device)
+                        vec_card = card_embs.mean(0)
+                    except Exception:
+                        vec_card = torch.zeros(65, device=self.device)
+
+            # --- 3. ATTACK flag ---
+            flag_att = torch.zeros(1, device=self.device)
+            if t_idx == 2:
                 flag_att[0] = 1.0
 
+            # --- 4. PATRON embedding ---
+            vec_pat = torch.zeros(10, device=self.device)
             if t_idx == 4 and "patron" in d:
-                vec_pat = self.patron_emb.weight[d["patron"]].to(self.device)
+                try:
+                    vec_pat = self.patron_emb.weight[d["patron"]].to(self.device)
+                except IndexError:
+                    pass
 
-            if t_idx == 5 and "cids" in d:
-                emb = torch.as_tensor(self.reg.embedding[d["cids"]], device=self.device)
-                vec_card = emb.mean(0)
-
-            if t_idx == 5 and "eff" in d:
+            # --- 5. CHOICE (effect embedding) ---
+            vec_choice = torch.zeros(self.d_model, device=self.device)
+            if t_idx == 5 and "eff" in d and d["eff"]:
                 eff_vecs = []
                 for eff in d["eff"]:
                     eid, amt = self._parse_effect(eff)
-                    eff_vecs.append(self.effect_emb.weight[eid] * (1 + amt / self.MAX_EFFECT_AMOUNT))
-                vec_choice = torch.stack(eff_vecs).mean(0)
+                    try:
+                        eff_vec = self.effect_emb.weight[eid] * (1 + amt / self.MAX_EFFECT_AMOUNT)
+                        eff_vecs.append(eff_vec)
+                    except IndexError:
+                        continue
+                if eff_vecs:
+                    vec_choice = torch.stack(eff_vecs).mean(0)
 
             vec_type_list.append(vec_type)
             vec_card_list.append(vec_card)
@@ -224,13 +247,14 @@ class MoveEncoder(nn.Module):
             vec_choice_list.append(vec_choice)
             flag_att_list.append(flag_att)
 
+        # --- Concatenate and feedforward ---
         concat = torch.cat([
             torch.stack(vec_type_list),
             torch.stack(vec_card_list),
             torch.stack(vec_pat_list),
             torch.stack(vec_choice_list),
             torch.stack(flag_att_list)
-        ], dim=1)
+        ], dim=1)  # (N, d_total)
 
         out_vecs = self.ff(concat)  # (N, D)
 
@@ -240,4 +264,22 @@ class MoveEncoder(nn.Module):
             out[b, k] = vec
             mask[b, k] = True
 
+        return out, mask
+    
+    def forward_batch(self, batch: List[List[dict]]) -> Tuple[torch.Tensor, torch.Tensor]:
+        flat = [m for lst in batch for m in lst]
+        vecs = self.forward(flat)
+        B = len(batch)
+        K = max(len(lst) for lst in batch)
+        D = vecs.shape[-1]
+
+        out = vecs.new_zeros(B, K, D)
+        mask = torch.zeros(B, K, dtype=torch.bool, device=vecs.device)
+
+        i = 0
+        for b, lst in enumerate(batch):
+            for k, _ in enumerate(lst):
+                out[b, k] = vecs[i]
+                mask[b, k] = True
+                i += 1
         return out, mask

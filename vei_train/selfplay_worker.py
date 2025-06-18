@@ -9,11 +9,14 @@ BASE_CLIENT_PORT = 50000
 BASE_SERVER_PORT = 49000
 
 OPPONENT_PROBS = [
-    ("DecisionTreeBot",        0.20),
-    ("SOISMCTS",               0.05),
-    ("MaxPrestigeBot",         0.15),
-    ("Vei-mirror",             0.40),
-    ("Vei-former",             0.20),
+    ("RandomWithoutEndTurnBot", 0.40),
+    ("DecisionTreeBot",         0.00),
+    ("MaxPrestigeBot",          0.10),
+    ("BeamSearchBot",           0.00),
+    ("MCTSBot",                 0.00),
+    ("SOISMCTS",                0.00),
+    ("Vei-mirror",              0.50),
+    ("Vei-former",              0.00),
 ]
 
 def pick_former_weights(current_weights: str) -> str:
@@ -36,7 +39,7 @@ def selfplay_once(weights, replay_dir, worker_id, tag_mtime: float):
         enemy_is_pybot = True
     elif enemy_name_or_class == "Vei-former":
         former_w       = pick_former_weights(weights)
-        enemy_bot      = Vei(f"VeiFormer_{worker_id}", weights=former_w, traj_path=str(tmp_path))
+        enemy_bot      = Vei(f"VeiFormer_{worker_id}", weights=former_w)
         enemy_is_pybot = True
     else: 
         enemy_bot      = enemy_name_or_class
@@ -54,8 +57,8 @@ def selfplay_once(weights, replay_dir, worker_id, tag_mtime: float):
         g.register_bot(enemy_bot)
 
     g.run(p1.bot_name if isinstance(p1, Vei) else p1, p2.bot_name if isinstance(p2, Vei) else p2,
-        runs=1, threads=1, start_game_runner=True,
-        base_client_port=cport, base_server_port=sport)
+        runs=1, threads=1, timeout=20, start_game_runner=True,
+        base_client_port=cport, base_server_port=sport, verbose=True)
 
     final_path = pathlib.Path(replay_dir) / f"{int(time.time()*1e3)}_{worker_id}.jsonl"
     tmp_path.replace(final_path)
@@ -71,6 +74,12 @@ def main():
     os.makedirs(args.replay_dir + "/tmp", exist_ok=True)
     last_mtime = 0.0
     while True:
+        files = list(pathlib.Path(args.replay_dir).glob("*.jsonl"))
+        if len(files) > 100:
+            print(f"[W{args.wid}] too many files in {args.replay_dir} ({len(files)}), sleeping 5min...", flush=True)
+            time.sleep(300)
+            continue
+
         if os.path.isfile(args.weights):
             mtime = os.path.getmtime(args.weights)
             if mtime > last_mtime:
