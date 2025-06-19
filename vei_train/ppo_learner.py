@@ -29,7 +29,7 @@ All params to tweak things are here at the top, simply run this file and adjust 
 BATCH       = 1024
 MINI        = 128
 EPOCHS      = 4
-LR          = 5e-5
+LR          = 1e-6
 CLIP_EPS    = 0.2
 CLIP_VF     = 0.2
 TEMPERATURE = 1.0
@@ -189,7 +189,6 @@ def main():
     while True:
         buffer.extend(load_batch(args.replay_dir, want=BATCH))
         if len(buffer) < BATCH:
-            #print(f'Not enough for learn {len(buffer)}/{BATCH}', end='\r')
             time.sleep(1)
             continue
         steps   = buffer[:BATCH]

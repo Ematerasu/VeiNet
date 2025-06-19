@@ -66,12 +66,6 @@ class Vei(BaseAI):
         self.player_id = None
         self._tag = tag
         self.crashed = False
-        self.obvious_moves_count = 0
-        self.valuehead_moves_count = 0
-        if not os.path.exists("move_stats.csv"):
-            with open("move_stats.csv", "w", newline="", encoding="utf-8") as f:
-                writer = csv.writer(f)
-                writer.writerow(["obvious_moves", "nonobvious_moves"])
 
     def pregame_prepare(self):
         self._steps.clear()
@@ -110,8 +104,6 @@ class Vei(BaseAI):
 
 
     def select_patron(self, available_patrons):
-        self.obvious_moves_count = 0
-        self.nonobvious_moves_count = 0
         for pid in self._PATRON_PRIORITY:
             if pid in available_patrons:
                 return pid
@@ -123,22 +115,24 @@ class Vei(BaseAI):
         if self.player_id is None:
             self.player_id = game_state.current_player.player_id
         try:
-            if len(possible_moves) == 1:
-                self.obvious_moves_count += 1
-                return possible_moves[0]
-
-            for move in possible_moves:
-                if move.command in [MoveEnum.PLAY_CARD, MoveEnum.ACTIVATE_AGENT]:
-                    state_after, _ = game_state.apply_move(move)
-                    if state_after.pending_choice is None:
-                        self.obvious_moves_count += 1
-                        return move
-
             feats = self.encoder(game_state)
             with torch.no_grad():
                 logits, V = self.compute_forward(game_state, feats, possible_moves)
 
-            idx = int(logits.argmax().item())
+            try:
+                good_moves = sum(1 for m in possible_moves 
+                                    if m.command in (MoveEnum.PLAY_CARD,
+                                                    MoveEnum.ACTIVATE_AGENT,
+                                                    MoveEnum.BUY_CARD,
+                                                    MoveEnum.CALL_PATRON))
+                end_idx = next(i for i, m in enumerate(possible_moves) if m.command == MoveEnum.END_TURN)
+                if end_idx < logits.size(0) and good_moves > 0:
+                    logits[end_idx] -= 0.1 * good_moves
+            except (StopIteration, IndexError):
+                pass
+
+            probs = logits.softmax(0).cpu().numpy()
+            idx   = np.random.choice(len(possible_moves), p=probs)
             mv    = possible_moves[idx]
 
             ended_early = (mv.command == MoveEnum.END_TURN and any(
@@ -163,7 +157,6 @@ class Vei(BaseAI):
                 },
                 "tag": self._tag,
             })
-            self.nonobvious_moves_count += 1
             return mv
 
         except Exception as e:
@@ -171,15 +164,8 @@ class Vei(BaseAI):
             self.crashed = True
             traceback.print_exc()
             return possible_moves[-1]
-
         
     def game_end(self, end_game_state, final_state):
-        with open("move_stats.csv", "a", newline="", encoding="utf-8") as f:
-            writer = csv.writer(f)
-            writer.writerow([
-                self.obvious_moves_count,
-                self.nonobvious_moves_count
-            ])
         gamma = 0.97
         me = final_state.current_player if final_state.current_player.player_id == self.player_id else final_state.enemy_player
         opp = final_state.enemy_player if final_state.current_player.player_id == self.player_id else final_state.current_player
