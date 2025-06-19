@@ -19,7 +19,7 @@ import torch
 import sys, traceback, time
 
 
-from models.VeiNet import VeiNet
+from models.VeiNet import SimpleVeiNet, VeiNet
 from models.card_registry import CardRegistry
 from models.move_encoder import MoveEncoder
 from models.state_encoder import StateEncoder
@@ -119,18 +119,6 @@ class Vei(BaseAI):
             with torch.no_grad():
                 logits, V = self.compute_forward(game_state, feats, possible_moves)
 
-            try:
-                good_moves = sum(1 for m in possible_moves 
-                                    if m.command in (MoveEnum.PLAY_CARD,
-                                                    MoveEnum.ACTIVATE_AGENT,
-                                                    MoveEnum.BUY_CARD,
-                                                    MoveEnum.CALL_PATRON))
-                end_idx = next(i for i, m in enumerate(possible_moves) if m.command == MoveEnum.END_TURN)
-                if end_idx < logits.size(0) and good_moves > 0:
-                    logits[end_idx] -= 0.1 * good_moves
-            except (StopIteration, IndexError):
-                pass
-
             probs = logits.softmax(0).cpu().numpy()
             idx   = np.random.choice(len(possible_moves), p=probs)
             mv    = possible_moves[idx]
@@ -166,7 +154,7 @@ class Vei(BaseAI):
             return possible_moves[-1]
         
     def game_end(self, end_game_state, final_state):
-        gamma = 0.97
+        gamma = 1.0
         me = final_state.current_player if final_state.current_player.player_id == self.player_id else final_state.enemy_player
         opp = final_state.enemy_player if final_state.current_player.player_id == self.player_id else final_state.current_player
         if isinstance(me, CurrentPlayer):
@@ -190,7 +178,7 @@ class Vei(BaseAI):
 
             for deck_idx in (0, 1, 6, 7):
                 if counts.get(deck_idx, 0) / total >= 0.4:
-                    deck_bonus = 0.5
+                    deck_bonus = 0.3
                     break
 
         prest_me = me.prestige
@@ -203,7 +191,7 @@ class Vei(BaseAI):
 
         # ───── Terminal reward ───── #
         R_terminal = 2.0 if end_game_state.winner == player_name else -2.0
-        patron_bonus = 0.4 if end_game_state.reason.startswith("PATRON") else 0.0
+        patron_bonus = 0.3 if end_game_state.reason.startswith("PATRON") else 0.0
         if R_terminal < 0: patron_bonus = -patron_bonus
         R_terminal += Δprest + patron_bonus + deck_bonus
 
@@ -242,15 +230,12 @@ class Vei(BaseAI):
                 if Δprest >= (2 / 80):  extra += COMBO_PREST_BONUS
 
             # ───── Card reward (based on WWR) ───── #
-            try:
-                move = step["moves"][step["action_idx"]]
-                if move['type'] in [0, 1, 3]:
-                    cid = self.card_registry.uid2cid.get(move['cid'])
-                    if cid is not None:
-                        wwr = self.card_registry.weighted_win_rate.get(cid, 0.5)
-                        extra += (wwr - 0.5) * CARD_WWR_BONUS
-            except Exception as e:
-                print("⚠️ Failed to apply WWR bonus:", e)
+            move = step["moves"][step["action_idx"]]
+            if move['type'] in [0, 1, 3]:
+                cid = self.card_registry.uid2cid.get(move['cid'])
+                if cid is not None:
+                    wwr = self.card_registry.weighted_win_rate.get(cid, 0.5)
+                    extra += (wwr - 0.5) * CARD_WWR_BONUS
 
             G = G * gamma + extra
             step["reward"] = G
@@ -267,18 +252,15 @@ class Vei(BaseAI):
         return t.cpu().tolist() if torch.is_tensor(t) else t
     
     def compute_forward(self, game_state, feats, possible_moves):
-        state_vec, V = self.net.forward_state(feats)
         move_vecs = self.move_encoder(possible_moves)
-        logits = (state_vec.unsqueeze(0) * move_vecs).sum(-1)
+        logits, V = self.net.forward_state(feats, move_vecs)
         bias = torch.zeros_like(logits)
-
         for i, m in enumerate(possible_moves):
             if m.command in [MoveEnum.PLAY_CARD, MoveEnum.BUY_CARD, MoveEnum.ACTIVATE_AGENT]:
                 cid = self.card_registry.uid2cid.get(m.cardUniqueId)
                 if cid is not None:
                     wwr = self.card_registry.weighted_win_rate.get(cid, 0.5)
-                    bias[i] += (wwr - 0.5) * 0.95
-
+                    bias[i] += (wwr - 0.5) * 0.9
         logits = logits + bias
 
         try:

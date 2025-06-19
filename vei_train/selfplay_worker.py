@@ -9,14 +9,14 @@ BASE_CLIENT_PORT = 50000
 BASE_SERVER_PORT = 49000
 
 OPPONENT_PROBS = [
-    ("RandomWithoutEndTurnBot", 0.40),
+    ("RandomWithoutEndTurnBot", 0.30),
     ("DecisionTreeBot",         0.00),
-    ("MaxPrestigeBot",          0.10),
+    ("MaxPrestigeBot",          0.20),
     ("BeamSearchBot",           0.00),
     ("MCTSBot",                 0.00),
     ("SOISMCTS",                0.00),
-    ("Vei-mirror",              0.50),
-    ("Vei-former",              0.00),
+    ("Vei-mirror",              0.40),
+    ("Vei-former",              0.10),
 ]
 
 def pick_former_weights(current_weights: str) -> str:

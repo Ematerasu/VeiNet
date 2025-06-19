@@ -6,7 +6,7 @@ import gc
 import itertools
 from tqdm import tqdm
 
-from models.VeiNet import VeiNet
+from models.VeiNet import SimpleVeiNet, VeiNet
 from models.move_encoder import MoveEncoder 
 from scripts_of_tribute.enums import MoveEnum, PatronId
 from scripts_of_tribute.move import (
@@ -141,27 +141,31 @@ def main():
             super().__init__()
             self.backbone     = VeiNet()
             self.move_encoder = MoveEncoder(mode='stub')
-        def forward(self, feats_batch, move_vecs):
-            trunk_vecs, values = [], []
-            for f in feats_batch:
-                h, v = self.backbone.forward_state(f)
-                trunk_vecs.append(h)
-                values.append(v)
-            H = torch.stack(trunk_vecs)           # (B,256)
-            V = torch.stack(values).squeeze(-1)   # (B,)
-            H = F.normalize(H, dim=-1)
-            M = F.normalize(move_vecs, dim=-1)
-            logits = (H.unsqueeze(1) * M).sum(-1)
-            return logits, V
+
+        def forward(self, feats_batch, move_vecs, mask):
+            B, K, D = move_vecs.shape
+
+            logits_batch = []
+            values_batch = []
+            for b in range(B):
+                feats = feats_batch[b]
+                mv_vecs = move_vecs[b]
+                logit_b, v_b = self.backbone.forward_state(feats, mv_vecs)
+                logit_b = logit_b.masked_fill(~mask[b], float('-inf'))
+                logits_batch.append(logit_b)
+                values_batch.append(v_b)
+
+            logits = torch.stack(logits_batch, dim=0)  # (B, K)
+            values = torch.stack(values_batch, dim=0)  # (B,)
+
+            return logits, values
 
     net = LearnerNet().to(device)
 
     opt = torch.optim.Adam(
         [
-            {"params": net.backbone.trans_enc.parameters(), "lr": LR},
-            {"params": net.backbone.post_proj.parameters(), "lr": LR},
-            {"params": net.backbone.value_head.parameters(), "lr": LR},
-            {"params": net.move_encoder.parameters(),         "lr": LR * 5},
+            {"params": net.backbone.parameters(), "lr": LR},
+            {"params": net.move_encoder.parameters(), "lr": LR * 5},
         ],
         betas=(0.9, 0.999), eps=1e-8
     )
@@ -207,15 +211,16 @@ def main():
                 idx = perm[i:i+MINI]
 
                 feats_mb = [feats_batch[j] for j in idx.tolist()]
+                move_mb     = [move_lists[j] for j in idx.tolist()]
                 old_lp_mb, old_val_mb = old_lp[idx], old_val[idx]
                 ret_mb       = R[idx]
                 act       = a_idx[idx]
                 act = act.view(-1, 1).long()
 
-                mv_s, mask_s = net.move_encoder.forward_batch([move_lists[j] for j in idx.tolist()])
+                mv_s, mask_s = net.move_encoder.forward_batch(move_mb)
                 mv_s, mask_s = mv_s.to(device), mask_s.to(device)
 
-                logits, V = net(feats_mb, mv_s)
+                logits, V = net(feats_mb, mv_s, mask_s)
                 logits = logits / TEMPERATURE
                 logits = torch.clamp(logits, -20.0, 20.0)
 
