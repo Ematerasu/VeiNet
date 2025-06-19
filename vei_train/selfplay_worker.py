@@ -9,13 +9,13 @@ BASE_CLIENT_PORT = 50000
 BASE_SERVER_PORT = 49000
 
 OPPONENT_PROBS = [
-    ("RandomWithoutEndTurnBot", 0.30),
-    ("DecisionTreeBot",         0.00),
+    ("RandomWithoutEndTurnBot", 0.10),
     ("MaxPrestigeBot",          0.20),
-    ("BeamSearchBot",           0.00),
-    ("MCTSBot",                 0.00),
+    ("DecisionTreeBot",         0.15),
+    ("BeamSearchBot",           0.15),
+    ("MCTSBot",                 0.05),
     ("SOISMCTS",                0.00),
-    ("Vei-mirror",              0.40),
+    ("Vei-mirror",              0.25),   # self‐play
     ("Vei-former",              0.10),
 ]
 
@@ -35,7 +35,7 @@ def selfplay_once(weights, replay_dir, worker_id, tag_mtime: float):
     
     vei_bot = Vei(f"Vei_{worker_id}", weights=weights, traj_path=str(tmp_path), tag=tag_mtime)
     if enemy_name_or_class == "Vei-mirror":
-        enemy_bot      = Vei(f"VeiEnemy_{worker_id}", weights=weights, traj_path=str(tmp_path))
+        enemy_bot      = Vei(f"VeiEnemy_{worker_id}", weights=weights, traj_path=str(tmp_path), tag=tag_mtime)
         enemy_is_pybot = True
     elif enemy_name_or_class == "Vei-former":
         former_w       = pick_former_weights(weights)
@@ -87,7 +87,7 @@ def main():
                 last_mtime = mtime
             current_tag = last_mtime
         selfplay_once(args.weights if os.path.isfile(args.weights) else None, args.replay_dir, args.wid, tag_mtime=current_tag)
-        
+        time.sleep(1)
 
 if __name__ == "__main__":
     main()

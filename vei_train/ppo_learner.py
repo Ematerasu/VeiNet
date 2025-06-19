@@ -1,4 +1,4 @@
-import argparse, glob, json, math, os, random, time, pathlib
+import argparse, glob, json, csv, os, random, time, pathlib
 import torch, torch.nn.functional as F
 from torch import nn
 import numpy as np
@@ -29,17 +29,18 @@ All params to tweak things are here at the top, simply run this file and adjust 
 BATCH       = 1024
 MINI        = 128
 EPOCHS      = 4
-LR          = 1e-6
+LR          = 5e-6
 CLIP_EPS    = 0.2
 CLIP_VF     = 0.2
 TEMPERATURE = 1.0
 
 BETA_LOW    = 0.1
 BETA_HIGH   = 0.3
-KL_TARGET   = 0.01
+KL_TARGET   = 0.03
 # ────────────────────────────────────────────────────────── #
 UPDATE_EVERY = 10
 CURRENT_TAG = 0.0
+LOG_PATH = "data/training_log.csv"
 
 def feats_to_torch(feats_json: dict, device: torch.device):
     CARD_KEYS   = {"hand","played","cooldown","draw","tavern"}
@@ -132,7 +133,15 @@ def main():
     args = ap.parse_args()
     if os.path.isfile(args.weights):
         CURRENT_TAG = os.path.getmtime(args.weights)
-
+    if not os.path.exists(LOG_PATH):
+        with open(LOG_PATH, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                "step",
+                "R_mean", "R_std",
+                "V_mean", "V_std",
+                "KL", "entropy", "Loss"
+            ])
     os.makedirs(args.replay_dir, exist_ok=True)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -267,10 +276,25 @@ def main():
 
         if step_cnt % UPDATE_EVERY == 0:
             torch.save(net.state_dict(), args.weights)
+            R_mean = R.mean().item()
+            R_std  = R.std().item()
+            V_mean = V.mean().item()
+            V_std  = V.std().item()
             print(
-                f"[Learner] step {step_cnt} | R̄={R.float().mean():+.3f} | val head: {V.float().mean():.3f} | V.std={V.std():.3f} | "
-                f"KL≈{avg_kl:.4f} | H={avg_ent:.4f} | Loss={loss.item():.4f}| saved."
+                f"[Learner] step {step_cnt} | "
+                f"R̄={R_mean:+.3f} (σ={R_std:.3f}) | "
+                f"val head: {V_mean:.3f} (σ={V_std:.3f}) | "
+                f"KL≈{avg_kl:.4f} | H={avg_ent:.4f} | Loss={loss.item():.4f} | saved."
             )
+            with open(LOG_PATH, "a", newline="", encoding="utf-8") as f:
+                    writer = csv.writer(f)
+                    writer.writerow([
+                        step_cnt,
+                        f"{R_mean:.3f}", f"{R_std:.3f}",
+                        f"{V_mean:.3f}", f"{V_std:.3f}",
+                        f"{avg_kl:.4f}", f"{avg_ent:.4f}",
+                        f"{loss.item():.4f}",
+                    ])
             CURRENT_TAG = os.path.getmtime(args.weights)
 
 if __name__ == "__main__":

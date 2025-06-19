@@ -190,7 +190,7 @@ class Vei(BaseAI):
             player_name = player_name.split(".")[-1]
 
         # ───── Terminal reward ───── #
-        R_terminal = 2.0 if end_game_state.winner == player_name else -2.0
+        R_terminal = 1.0 if end_game_state.winner == player_name else -1.0
         patron_bonus = 0.3 if end_game_state.reason.startswith("PATRON") else 0.0
         if R_terminal < 0: patron_bonus = -patron_bonus
         R_terminal += Δprest + patron_bonus + deck_bonus
