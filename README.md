@@ -1,6 +1,6 @@
 # Vei – Self-Play Reinforcement Learning for Scripts of Tribute
 
-Vei (Value-Enhanced Interferer) is a self-play reinforcement learning framework for the deck-building card game Scripts of Tribute (Tales of Tribute, ESO). It orchestrates parallel AI-vs-AI matches, logs full game trajectories, trains a policy/value network via PPO, and evaluates against reference bots. The objective is to build a large, high-quality dataset of gameplay and develop a robust decision-making model.
+Vei (Vectorized Embedded Intelligence) is a self-play reinforcement learning framework for the deck-building card game Scripts of Tribute (Tales of Tribute, ESO). It orchestrates parallel AI-vs-AI matches, logs full game trajectories, trains a policy/value network via PPO, and evaluates against reference bots. The objective is to build a large, high-quality dataset of gameplay and develop a robust decision-making model.
 
 Basically built as a Proof of Concept for future NN-enhanced approaches
 
@@ -235,7 +235,7 @@ VeiNet is a Transformer-based policy/value network that aggregates sets of card 
   - `phase_emb`: learnable embedding for four game phases.
 
 - **Transformer Trunk**  
-    - **Interfer** all pooled outputs → 10 × 256 dims.  
+    - Interfer all pooled outputs → 10 × 256 dims.  
     - `pre_trunk`: linear + ReLU → 256 dims.  
     - `trans_enc`: two layers of `TransformerEncoder` (8 heads, GELU, feedforward 1024).  
     - `post_proj`: linear + ReLU → 256 dims.  

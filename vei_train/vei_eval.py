@@ -1,5 +1,7 @@
 import argparse
+
 from scripts_of_tribute.game import Game
+
 from AI.vei import Vei
 
 

@@ -1,8 +1,14 @@
+import argparse
 import csv
 import datetime
+import os
+import pathlib
 import re
 import shutil
-import argparse, subprocess, sys, os, time, signal, pathlib
+import signal
+import subprocess
+import sys
+import time
 from typing import List
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]

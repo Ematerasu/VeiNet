@@ -1,10 +1,13 @@
 from __future__ import annotations
+
 from typing import Dict, List, Tuple
+
 import torch
 import torch.nn as nn
+from scripts_of_tribute.enums import MoveEnum, PatronId
+from scripts_of_tribute.move import (BasicMove, MakeChoiceMoveUniqueCard,
+                                     MakeChoiceMoveUniqueEffect)
 
-from scripts_of_tribute.move import BasicMove, MakeChoiceMoveUniqueCard, MakeChoiceMoveUniqueEffect
-from scripts_of_tribute.enums import PatronId, MoveEnum
 from models.card_registry import CardRegistry
 
 

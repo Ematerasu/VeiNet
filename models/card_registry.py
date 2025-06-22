@@ -1,10 +1,12 @@
 from __future__ import annotations
+
+import csv
+import json
+import threading
 from pathlib import Path
 from typing import Dict, List
-import json
-import csv
+
 import numpy as np
-import threading
 
 _ROOT = Path(__file__).resolve().parents[1]
 _DATA = _ROOT / "data"

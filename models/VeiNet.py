@@ -1,5 +1,8 @@
 import math
-import torch, torch.nn as nn, torch.nn.functional as F
+
+import torch
+import torch.nn as nn
+
 
 class SetPool(nn.Module):
     def __init__(self, d_model=256, n_head=4):
@@ -97,59 +100,3 @@ class VeiNet(nn.Module):
         logits = (trunk_out.unsqueeze(0) * move_embeds).sum(-1)  # (M,)
 
         return logits, value
-
-
-class SimpleVeiNet(nn.Module):
-    def __init__(self, d_model=256, num_scalars=11, num_patrons=10):
-        super().__init__()
-        in_dim = (
-            65 + 65 + 65 + 65 + 65   # hand, played, cooldown, draw, tavern  (średnia embeddingów)
-            + 67 + 67                 # agents_self, agents_enemy           (średnia agentów)
-            + num_patrons            # patron one‐hot
-            + num_scalars            # scalars
-            + 1                      # phase (skalarnie)
-            + num_patrons            # deck_pct
-        )
-        self.state_proj = nn.Sequential(
-            nn.Linear(in_dim, d_model),
-            nn.ReLU(),
-            nn.Linear(d_model, d_model),
-            nn.ReLU(),
-        )
-        # policy/value heads
-        self.policy_head = nn.Sequential(
-            nn.Linear(d_model, d_model),
-            nn.ReLU(),
-            nn.Linear(d_model, 1)   # logits per move
-        )
-        self.value_head = nn.Sequential(
-            nn.Linear(d_model, d_model//2),
-            nn.ReLU(),
-            nn.Linear(d_model//2, 1)
-        )
-    
-    def forward_state(self, feats, move_embeds):
-        pools = []
-        for key in ("hand","played","cooldown","draw","tavern"):
-            x = feats[key]            # (N,65)
-            pools.append(x.mean(0) if x.numel() else torch.zeros(65,device=x.device))
-        for key in ("agents_self","agents_enemy"):
-            x = feats[key]            # (N,67)
-            pools.append(x.mean(0) if x.numel() else torch.zeros(67,device=x.device))
-
-        # 2. scalars + patrons + phase + deck_pct
-        pools.append(feats["patrons"].float())   # (10,)
-        pools.append(feats["scalars"])           # (11,)
-        pools.append(feats["phase"].float())     # (1,)
-        pools.append(feats["deck_pct"])          # (10,)
-
-        state_vec = torch.cat(pools, dim=-1)     # (in_dim,)
-        H = self.state_proj(state_vec)           # (d_model,)
-
-        # 3. policy:
-        #    move_embeds: (M, d_model)
-        logits = (H.unsqueeze(0) * move_embeds).sum(-1)   # (M,)
-
-        # 4. value
-        V = self.value_head(H)                          # (1,)
-        return logits, V.squeeze()

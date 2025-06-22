@@ -1,28 +1,21 @@
-import csv
-import os
 import pathlib
 import random
+import sys
+import traceback
 from typing import Dict
+
 import numpy as np
-from scripts_of_tribute.base_ai import BaseAI
-from scripts_of_tribute.enums import MoveEnum, PatronId
-from scripts_of_tribute.move import (
-    BasicMove,
-    SimpleCardMove,
-    SimplePatronMove,
-    MakeChoiceMoveUniqueCard,
-    MakeChoiceMoveUniqueEffect
-)
-
-from scripts_of_tribute.board import GameState, CurrentPlayer, EnemyPlayer
 import torch
-import sys, traceback, time
+from scripts_of_tribute.base_ai import BaseAI
+from scripts_of_tribute.board import CurrentPlayer, GameState
+from scripts_of_tribute.enums import MoveEnum, PatronId
+from scripts_of_tribute.move import BasicMove
 
-
-from models.VeiNet import SimpleVeiNet, VeiNet
 from models.card_registry import CardRegistry
 from models.move_encoder import MoveEncoder
 from models.state_encoder import StateEncoder
+from models.VeiNet import VeiNet
+
 
 class Vei(BaseAI):
 
@@ -237,8 +230,7 @@ class Vei(BaseAI):
                     wwr = self.card_registry.weighted_win_rate.get(cid, 0.5)
                     extra += (wwr - 0.5) * CARD_WWR_BONUS
 
-            G = G * gamma + extra
-            step["reward"] = G
+            step["reward"] = G * gamma + extra
             step["done"] = True
             del step["stats"]
 

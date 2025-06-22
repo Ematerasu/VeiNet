@@ -1,21 +1,22 @@
-import argparse, glob, json, csv, os, random, time, pathlib
-import torch, torch.nn.functional as F
+import argparse
+import csv
+import glob
+import json
+import os
+import random
+import time
+
+import torch
+import torch.nn.functional as F
+from scripts_of_tribute.enums import MoveEnum, PatronId
+from scripts_of_tribute.move import (BasicMove, MakeChoiceMoveUniqueCard,
+                                     MakeChoiceMoveUniqueEffect,
+                                     SimpleCardMove, SimplePatronMove)
 from torch import nn
-import numpy as np
-import gc
-import itertools
 from tqdm import tqdm
 
-from models.VeiNet import SimpleVeiNet, VeiNet
-from models.move_encoder import MoveEncoder 
-from scripts_of_tribute.enums import MoveEnum, PatronId
-from scripts_of_tribute.move import (
-    BasicMove,
-    MakeChoiceMoveUniqueCard,
-    MakeChoiceMoveUniqueEffect,
-    SimpleCardMove,
-    SimplePatronMove,
-)
+from models.move_encoder import MoveEncoder
+from models.VeiNet import VeiNet
 
 """
 DISCLAIMER:
@@ -29,7 +30,7 @@ All params to tweak things are here at the top, simply run this file and adjust 
 BATCH       = 1024
 MINI        = 128
 EPOCHS      = 4
-LR          = 5e-6
+LR          = 1e-5
 CLIP_EPS    = 0.2
 CLIP_VF     = 0.2
 TEMPERATURE = 1.0

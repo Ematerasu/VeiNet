@@ -1,21 +1,25 @@
+import argparse
+import os
+import pathlib
 import random
-import itertools
-import uuid, json, pathlib, time, os, argparse
-from scripts_of_tribute.game import Game
-from AI.vei import Vei
 import time
+import uuid
+
+from scripts_of_tribute.game import Game
+
+from AI.vei import Vei
 
 BASE_CLIENT_PORT = 50000
 BASE_SERVER_PORT = 49000
 
 OPPONENT_PROBS = [
-    ("RandomWithoutEndTurnBot", 0.10),
-    ("MaxPrestigeBot",          0.20),
-    ("DecisionTreeBot",         0.15),
-    ("BeamSearchBot",           0.15),
-    ("MCTSBot",                 0.05),
-    ("SOISMCTS",                0.00),
-    ("Vei-mirror",              0.25),   # self‐play
+    ("RandomWithoutEndTurnBot", 0.00),
+    ("MaxPrestigeBot",          0.00),
+    ("DecisionTreeBot",         0.10),
+    ("BeamSearchBot",           0.20),
+    ("MCTSBot",                 0.20),
+    ("SOISMCTS",                0.10),
+    ("Vei-mirror",              0.30),   # self‐play
     ("Vei-former",              0.10),
 ]
 
@@ -87,7 +91,7 @@ def main():
                 last_mtime = mtime
             current_tag = last_mtime
         selfplay_once(args.weights if os.path.isfile(args.weights) else None, args.replay_dir, args.wid, tag_mtime=current_tag)
-        time.sleep(1)
+        time.sleep(5)
 
 if __name__ == "__main__":
     main()
