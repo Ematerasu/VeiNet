@@ -1,8 +1,8 @@
-# Vei – Self-Play Reinforcement Learning for Scripts of Tribute
+# Vei – DNN based AI agent for Scripts of Tribute
 
-Vei (Vectorized Embedded Intelligence) is a self-play reinforcement learning framework for the deck-building card game Scripts of Tribute (Tales of Tribute, ESO). It orchestrates parallel AI-vs-AI matches, logs full game trajectories, trains a policy/value network via PPO, and evaluates against reference bots. The objective is to build a large, high-quality dataset of gameplay and develop a robust decision-making model.
+Here is a self-play reinforcement learning framework for the deck-building card game Scripts of Tribute (Tales of Tribute, ESO). It orchestrates parallel AI-vs-AI matches, logs full game trajectories, trains a policy/value network via PPO, and evaluates against reference bots.
 
-Basically built as a Proof of Concept for future NN-enhanced approaches
+Basically built as a Proof of Concept for future NN-enhanced approaches, as a result we've got here Vei (Vectorized Embedded Intelligence) bot based on VeiNet architecture.
 
 ---
 
@@ -203,7 +203,7 @@ The `Vei` class in `AI/vei.py` implements the agent:
    - Sample or greedy-select an action; return it to the game engine.  
 
 3. **Post-Game Logging (`game_end`)**  
-   - Compute **Discounted Monte Carlo return** for each timestep.  
+   - Compute reward for each timestep.  
    - Serialize each step as JSON with fields:  
      ```json
      {
@@ -233,6 +233,7 @@ VeiNet is a Transformer-based policy/value network that aggregates sets of card 
   - `scalar_enc`: maps numeric game scalars (11 dims) → 256-dim.  
   - `patron_enc`: maps patron favors (10 dims) → 256-dim.  
   - `phase_emb`: learnable embedding for four game phases.
+  - `deck_pct_enc`: vector to represent distribution of decks in Vei's card pool.
 
 - **Transformer Trunk**  
     - Interfer all pooled outputs → 10 × 256 dims.  
@@ -246,8 +247,8 @@ VeiNet is a Transformer-based policy/value network that aggregates sets of card 
 ```python
 # Forward pass sketch
 feats = state_encoder(game_state)
-latent, value = VeiNet.forward_state(feats)
-# Policy logits: latent · move_embeddingsᵀ
+move_vecs = move_encoder(possible_moves)
+latent, value = VeiNet.forward_state(feats, move_vecs)
 ```
 
 ---

@@ -265,22 +265,3 @@ class Vei(BaseAI):
             pass
 
         return logits, V
-
-    def choose_via_value(self, game_state, possible_moves, logits):
-        topk_idx = logits.topk(min(3, len(possible_moves))).indices.tolist()
-        best_val = -float('inf')
-        best_move = None
-
-        for idx in topk_idx:
-            move = possible_moves[idx]
-            try:
-                next_state, _ = game_state.apply_move(move)
-                feats_next = self.encoder(next_state)
-                _, val = self.net.forward_state(feats_next)
-                if val.item() > best_val:
-                    best_val = val.item()
-                    best_move = move
-            except:
-                continue
-
-        return best_move

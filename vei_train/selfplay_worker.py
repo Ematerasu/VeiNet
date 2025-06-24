@@ -16,9 +16,9 @@ OPPONENT_PROBS = [
     ("RandomWithoutEndTurnBot", 0.00),
     ("MaxPrestigeBot",          0.00),
     ("DecisionTreeBot",         0.10),
-    ("BeamSearchBot",           0.20),
-    ("MCTSBot",                 0.20),
-    ("SOISMCTS",                0.10),
+    ("BeamSearchBot",           0.10),
+    ("MCTSBot",                 0.10),
+    ("SOISMCTS",                0.30),
     ("Vei-mirror",              0.30),   # self‐play
     ("Vei-former",              0.10),
 ]
