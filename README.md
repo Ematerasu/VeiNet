@@ -135,7 +135,7 @@ Schema of the process:
                 └──────────────────────────────────────────────────────────┘
                                 │ ←──── game state & legal moves ────┐
                                 │                                    │
-                                └─ play() returns action decisions ─┘
+                                └─ play() returns action decisions ──┘
                                 │                                   
                                 ▼                                   
                         ┌──────────────────┐                       

@@ -39,6 +39,7 @@ class VeiNet(nn.Module):
         self.patron_enc = nn.Linear(10, d_model)
         self.phase_emb  = nn.Embedding(4, d_model)
         self.deck_pct_enc = nn.Linear(10, d_model)
+        self.choice_emb = nn.Embedding(14, d_model)
 
         self.token_norm = nn.LayerNorm(d_model)
         self.post_ln = nn.LayerNorm(d_model)
@@ -89,8 +90,9 @@ class VeiNet(nn.Module):
             self.token_norm(self.scalar_enc(feats["scalars"]).unsqueeze(0)),
             self.token_norm(self.phase_emb(feats["phase"])),      # (1, d_model)
             self.token_norm(self.deck_pct_enc(feats["deck_pct"].unsqueeze(0))),
+            self.token_norm(self.choice_emb(feats["choice_followup"])),
         ]
-        tokens = torch.stack(token_list, dim=1)    # (1, 11, d_model)
+        tokens = torch.stack(token_list, dim=1)    # (1, 12, d_model)
         h = self.trans_enc(tokens).mean(1).squeeze(0)  # (d_model,)
 
         trunk_out = self.post_ln(self.post_proj(h))     # (d_model,)

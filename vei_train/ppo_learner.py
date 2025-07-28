@@ -30,7 +30,7 @@ All params to tweak things are here at the top, simply run this file and adjust 
 BATCH       = 1024
 MINI        = 128
 EPOCHS      = 4
-LR          = 1e-5
+LR          = 5e-6
 CLIP_EPS    = 0.2
 CLIP_VF     = 0.2
 TEMPERATURE = 1.0
@@ -44,22 +44,25 @@ CURRENT_TAG = 0.0
 LOG_PATH = "data/training_log.csv"
 
 def feats_to_torch(feats_json: dict, device: torch.device):
-    CARD_KEYS   = {"hand","played","cooldown","draw","tavern"}
-    AGENT_KEYS  = {"agents_self","agents_enemy"}
+    CARD_KEYS   = {"hand", "played", "cooldown", "draw", "tavern"}
+    AGENT_KEYS  = {"agents_self", "agents_enemy"}
+    LONG_KEYS   = {"phase", "choice_followup"}
+
     out = {}
     for k, arr in feats_json.items():
-        if k == "phase":
-            out[k] = torch.as_tensor(arr, dtype=torch.long,  device=device)
-        else:
-            if len(arr) == 0:
-                if k in CARD_KEYS:
-                    out[k] = torch.empty((0, 65), dtype=torch.float32, device=device)
-                elif k in AGENT_KEYS:
-                    out[k] = torch.empty((0, 67), dtype=torch.float32, device=device)
-                else:
-                    out[k] = torch.as_tensor(arr, dtype=torch.float32, device=device)
+        if len(arr) == 0:
+            if k in CARD_KEYS:
+                out[k] = torch.empty((0, 65), dtype=torch.float32, device=device)
+            elif k in AGENT_KEYS:
+                out[k] = torch.empty((0, 67), dtype=torch.float32, device=device)
+            elif k in LONG_KEYS:
+                out[k] = torch.empty((1,), dtype=torch.long, device=device)
             else:
                 out[k] = torch.as_tensor(arr, dtype=torch.float32, device=device)
+        else:
+            dtype = torch.long if k in LONG_KEYS else torch.float32
+            out[k] = torch.as_tensor(arr, dtype=dtype, device=device)
+
     return out
 
 def move_from_dict(d: dict) -> BasicMove:

@@ -15,11 +15,11 @@ BASE_SERVER_PORT = 49000
 OPPONENT_PROBS = [
     ("RandomWithoutEndTurnBot", 0.00),
     ("MaxPrestigeBot",          0.00),
-    ("DecisionTreeBot",         0.10),
+    ("DecisionTreeBot",         0.00),
     ("BeamSearchBot",           0.10),
     ("MCTSBot",                 0.10),
-    ("SOISMCTS",                0.30),
-    ("Vei-mirror",              0.30),   # self‐play
+    ("SOISMCTS",                0.35),
+    ("Vei-mirror",              0.35),   # self‐play
     ("Vei-former",              0.10),
 ]
 

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+from enum import Enum
 from typing import List, TypedDict
 
 import numpy as np
 import torch
-from scripts_of_tribute.board import CurrentPlayer, GameState, UniqueCard
+from scripts_of_tribute.board import CurrentPlayer, GameState, UniqueCard, Choice
 from scripts_of_tribute.enums import PatronId
 
 from models.card_registry import CardRegistry
@@ -21,8 +22,27 @@ class StateTensors(TypedDict):
     scalars: torch.Tensor         # (4,)
     patrons: torch.Tensor         # (NUM_PATRONS,)
     phase:   torch.Tensor         # (1,)
-    deck_pct: torch.Tensor
+    deck_pct: torch.Tensor        # (D,)
+    choice_followup: torch.Tensor # (1,)
 
+class ChoiceFollowUpEnum(Enum):
+    NONE = 0
+
+    ENACT_CHOSEN_EFFECT = 1
+    REPLACE_CARDS_IN_TAVERN = 2
+    DESTROY_CARDS = 3
+    DISCARD_CARDS = 4
+    REFRESH_CARDS = 5
+    TOSS_CARDS = 6
+    KNOCKOUT_AGENTS = 7
+    ACQUIRE_CARDS = 8
+    COMPLETE_HLAALU = 9
+    COMPLETE_PELLIN = 10
+    COMPLETE_PSIJIC = 11
+    COMPLETE_TREASURY = 12
+    DONATE = 13
+
+CHOICE_FOLLOWUP_MAP = {e.name: e.value for e in ChoiceFollowUpEnum}
 
 class StateEncoder:
     COINS_MAX      = 20
@@ -51,6 +71,12 @@ class StateEncoder:
             "phase":   torch.tensor([gs.board_state.value],
                                     dtype=torch.long, device=self.device),
         }
+
+        feats["choice_followup"] = torch.tensor(
+            [self._encode_choice_followup(gs.pending_choice)],
+            dtype=torch.long,
+            device=self.device
+        )
 
         feats["deck_pct"] = self._deck_distribution(gs.current_player)
 
@@ -134,3 +160,8 @@ class StateEncoder:
             pct = [0.0 for _ in PatronId]
 
         return torch.tensor(pct, dtype=torch.float32, device=self.device)
+
+    def _encode_choice_followup(self, choice: Choice | None) -> int:
+        if not choice:
+            return CHOICE_FOLLOWUP_MAP["NONE"]
+        return CHOICE_FOLLOWUP_MAP.get(choice.choice_follow_up, CHOICE_FOLLOWUP_MAP["NONE"])
